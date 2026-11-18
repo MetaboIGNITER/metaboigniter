@@ -1,0 +1,63 @@
+{
+    "gapfilled": {
+        "content": [
+            [
+                "charge\tRT\tmz\tquality\tsynth.A.mzML\tsynth.B.mzML\tsynth.C.mzML\tadduct",
+                "1.00000\t110.000\t241.118\t0.160678\t1.83401e+07\t1.94566e+07\t1.83401e+07\t[M+H]+",
+                "1.00000\t140.000\t285.136\t0.0966320\t1.22267e+07\t1.29711e+07\t67.6792\t[M+H]+",
+                "1.00000\t170.000\t329.159\t0.267797\t3.05669e+07\t3.24277e+07\t3.05669e+07\t[M+H]+",
+                "1.00000\t230.000\t413.266\t0.133899\t1.52834e+07\t1.62138e+07\t1.52834e+07\t[M+H]+",
+                "1.00000\t60.0000\t152.071\t0.214238\t2.44535e+07\t2.59421e+07\t2.44535e+07\t[M+H]+",
+                "1.00000\t90.0000\t367.178\t0.0696500\t9.17006e+06\t0.00000\t0.00000\t[M+H]+",
+                "2.00000\t200.000\t401.202\t0.0966320\t1.22267e+07\t1.29711e+07\t47.3736\t[M+2H]2+"
+            ]
+        ],
+        "timestamp": "2026-11-05T22:26:43.396821718",
+        "meta": {
+            "nf-test": "0.9.4",
+            "nextflow": "25.10.4"
+        }
+    },
+    "synthetic - no requantification": {
+        "content": [
+            {
+                "OPENMS_FEATUREFINDERMETABO": {
+                    "openms": "3.6.0"
+                },
+                "OPENMS_FEATURELINKERUNLABELEDKD": {
+                    "openms": "3.6.0"
+                },
+                "OPENMS_MAPALIGNERPOSECLUSTERING": {
+                    "openms": "3.6.0"
+                },
+                "OPENMS_MAPRTTRANSFORMER": {
+                    "openms": "3.6.0"
+                },
+                "OPENMS_METABOLITEADDUCTDECHARGER": {
+                    "openms": "3.6.0"
+                },
+                "PYOPENMS_EXPORTQUANTIFICATION": {
+                    "pyopenms": "3.6.0"
+                },
+                "Workflow": {
+                    "nf-core/metaboigniter": "v2.1.0"
+                }
+            },
+            [
+                "charge\tRT\tmz\tquality\tsynth.A.mzML\tsynth.B.mzML\tsynth.C.mzML\tadduct",
+                "1.00000\t110.000\t241.118\t0.160678\t1.83401e+07\t1.94566e+07\t1.83401e+07\t[M+H]+",
+                "1.00000\t140.000\t285.136\t0.0966320\t1.22267e+07\t1.29711e+07\t0.00000\t[M+H]+",
+                "1.00000\t170.000\t329.159\t0.267797\t3.05669e+07\t3.24277e+07\t3.05669e+07\t[M+H]+",
+                "1.00000\t230.000\t413.266\t0.133899\t1.52834e+07\t1.62138e+07\t1.52834e+07\t[M+H]+",
+                "1.00000\t60.0000\t152.071\t0.214238\t2.44535e+07\t2.59421e+07\t2.44535e+07\t[M+H]+",
+                "1.00000\t90.0000\t367.178\t0.0696500\t9.17006e+06\t0.00000\t0.00000\t[M+H]+",
+                "2.00000\t200.000\t401.202\t0.0966320\t1.22267e+07\t1.29711e+07\t0.00000\t[M+2H]2+"
+            ]
+        ],
+        "timestamp": "2026-11-05T22:26:21.023360753",
+        "meta": {
+            "nf-test": "0.9.4",
+            "nextflow": "25.10.4"
+        }
+    }
+}

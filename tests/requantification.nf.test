@@ -1,0 +1,320 @@
+// Requantification (gap filling) on the synthetic data set in tests/fixtures/requant_synthetic
+// (see tests/fixtures/README.md). Expected values are literals derived from the fixture design:
+//   synth.A has every compound -> no target;
+//   synth.B lacks T2 (367.1784), which has no signal at all -> one target, zero FFMI candidates;
+//   synth.C lacks T1 (285.1360, z=1), T2 and T3 (401.2021, z=2). In the "fill" variant T1 and T3
+//   are present below the FeatureFinderMetabo threshold, so FFMI recovers them; in the "absent"
+//   variant nothing is there.
+// In the "empty" variant synth.C has no feature at all (every compound below the FFM
+// threshold, T2 missing): its consensus column is empty and every consensus row is a target.
+nextflow_pipeline {
+
+    name "Requantification on synthetic data"
+    script "../main.nf"
+    tag "pipeline"
+    tag "requantification"
+
+    test("synthetic - no requantification") {
+
+        when {
+            params {
+                outdir = "$outputDir"
+                input  = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'positive', 'fill')
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            assertAll(
+                { assert workflow.success },
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_PRESENCE },
+                { assert !path("$outputDir/${RequantTestUtils.MASK}").exists() },
+                { assert RequantTestUtils.stableMd5(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_MD5 },
+                { assert snapshot(
+                    removeNextflowVersion("$outputDir/pipeline_info/nf_core_metaboigniter_software_mqc_versions.yml"),
+                    RequantTestUtils.stableView(observed)
+                ).match() }
+            )
+        }
+    }
+
+    test("synthetic --requantification - fills, absent targets and a sample without targets") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                input            = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'positive', 'fill')
+                requantification = true
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed  = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            def gapfilled = path("$outputDir/${RequantTestUtils.GAPFILLED}").readLines()
+            def mask      = path("$outputDir/${RequantTestUtils.MASK}").readLines()
+            def prov      = path("$outputDir/${RequantTestUtils.PROV}").readLines()
+            def summary   = path("$outputDir/${RequantTestUtils.SUMMARY}").readLines()
+            def counts    = ['consensus_rows', 'observed', 'targets_requested', 'candidates_recovered', 'accepted', 'rejected', 'no_candidate', 'missing_after']
+            def ffmi      = workflow.trace.tasks().collect { it.name }.findAll { it.contains('FEATUREFINDERMETABOIDENT') }
+            assertAll(
+                { assert workflow.success },
+                // the observed matrix is the one of a run without requantification
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_PRESENCE },
+                { assert RequantTestUtils.stableMd5(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_MD5 },
+                // FFMI runs only for samples that have targets
+                { assert ffmi.findAll { it.contains('(synth.A)') } == [] },
+                { assert ffmi.findAll { it.contains('(synth.B)') }.size() == 1 },
+                { assert ffmi.findAll { it.contains('(synth.C)') }.size() == 1 },
+                { assert RequantTestUtils.maskByMz(observed, mask) == [
+                    '152.0706': ['observed', 'observed', 'observed'],
+                    '241.1183': ['observed', 'observed', 'observed'],
+                    '285.1360': ['observed', 'observed', 'requantified'],
+                    '329.1592': ['observed', 'observed', 'observed'],
+                    '367.1784': ['observed', 'missing_no_candidate', 'missing_no_candidate'],
+                    '401.2021': ['observed', 'observed', 'requantified'],
+                    '413.2662': ['observed', 'observed', 'observed'],
+                ] },
+                { assert RequantTestUtils.provenanceTriples(prov) == [
+                    ['synth.B', '367.1784', 'no_candidate'],
+                    ['synth.C', '285.1360', 'accepted'],
+                    ['synth.C', '367.1784', 'no_candidate'],
+                    ['synth.C', '401.2021', 'accepted'],
+                ] },
+                { assert RequantTestUtils.tsv(prov).findAll { it.status == 'accepted' }.collect { [it.rejection_reason, it.failed_checks, it.model_status] } ==
+                    [['', '', '0 (valid)'], ['', '', '0 (valid)']] },
+                { assert RequantTestUtils.summaryCounts(summary, counts) == [
+                    'synth.A': [7, 7, 0, 0, 0, 0, 0, 0],
+                    'synth.B': [7, 6, 1, 0, 0, 0, 1, 1],
+                    'synth.C': [7, 4, 3, 2, 2, 0, 1, 1],
+                    'all'    : [7, 17, 4, 2, 2, 0, 2, 2],
+                ] },
+                // gap-filled matrix: originals untouched, the two fills are the low FFMI areas
+                { assert RequantTestUtils.presence(gapfilled).findAll { k, v -> !(k in ['285.1360', '401.2021']) } ==
+                    RequantTestUtils.SYNTHETIC_OBSERVED_PRESENCE.findAll { k, v -> !(k in ['285.1360', '401.2021']) } },
+                { assert RequantTestUtils.presence(gapfilled)['285.1360'] == [true, true, true] },
+                { assert RequantTestUtils.presence(gapfilled)['401.2021'] == [true, true, true] },
+                // the fills are the FFMI model areas of the injected Gaussians (within 1 %)
+                { assert RequantTestUtils.within(RequantTestUtils.cell(gapfilled, '285.1360', 'synth.C.mzML'), RequantTestUtils.SYNTHETIC_T1_AREA, 0.01) },
+                { assert RequantTestUtils.within(RequantTestUtils.cell(gapfilled, '401.2021', 'synth.C.mzML'), RequantTestUtils.SYNTHETIC_T3_AREA, 0.01) },
+                { assert RequantTestUtils.crossCheck(observed, gapfilled, mask)[0] == [] },
+                { assert snapshot(RequantTestUtils.stableView(gapfilled)).match('gapfilled') }
+            )
+        }
+    }
+
+    // Every target is absent but the extraction is valid (the run covers every RT window), so
+    // FFMI's zero-candidate outcome becomes an empty candidate map; see the module test.
+    test("synthetic --requantification - every target absent") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                input            = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'positive', 'absent')
+                requantification = true
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed  = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            def gapfilled = path("$outputDir/${RequantTestUtils.GAPFILLED}").readLines()
+            def mask      = path("$outputDir/${RequantTestUtils.MASK}").readLines()
+            def counts    = ['consensus_rows', 'observed', 'targets_requested', 'candidates_recovered', 'accepted', 'rejected', 'no_candidate', 'missing_after']
+            assertAll(
+                { assert workflow.success },
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_PRESENCE },
+                { assert RequantTestUtils.stableMd5(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_MD5 },
+                { assert RequantTestUtils.stableView(gapfilled) == RequantTestUtils.stableView(observed) },
+                { assert RequantTestUtils.maskByMz(observed, mask).findAll { k, v -> v != ['observed'] * 3 } == [
+                    '285.1360': ['observed', 'observed', 'missing_no_candidate'],
+                    '367.1784': ['observed', 'missing_no_candidate', 'missing_no_candidate'],
+                    '401.2021': ['observed', 'observed', 'missing_no_candidate'],
+                ] },
+                { assert RequantTestUtils.provenanceTriples(path("$outputDir/${RequantTestUtils.PROV}").readLines()) == [
+                    ['synth.B', '367.1784', 'no_candidate'],
+                    ['synth.C', '285.1360', 'no_candidate'],
+                    ['synth.C', '367.1784', 'no_candidate'],
+                    ['synth.C', '401.2021', 'no_candidate'],
+                ] },
+                { assert RequantTestUtils.summaryCounts(path("$outputDir/${RequantTestUtils.SUMMARY}").readLines(), counts) == [
+                    'synth.A': [7, 7, 0, 0, 0, 0, 0, 0],
+                    'synth.B': [7, 6, 1, 0, 0, 0, 1, 1],
+                    'synth.C': [7, 4, 3, 0, 0, 0, 3, 3],
+                    'all'    : [7, 17, 4, 0, 0, 0, 4, 4],
+                ] },
+                { assert RequantTestUtils.crossCheck(observed, gapfilled, mask)[0] == [] }
+            )
+        }
+    }
+
+    test("synthetic --requantification --polarity negative --parallel_linking - reversed samplesheet") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                input            = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'negative', 'fill', true)
+                requantification = true
+                polarity         = 'negative'
+                parallel_linking = true
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed  = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            def gapfilled = path("$outputDir/${RequantTestUtils.GAPFILLED}").readLines()
+            def mask      = path("$outputDir/${RequantTestUtils.MASK}").readLines()
+            def counts    = ['consensus_rows', 'observed', 'targets_requested', 'candidates_recovered', 'accepted', 'rejected', 'no_candidate', 'missing_after']
+            def rows      = RequantTestUtils.tsv(observed).collectEntries { [RequantTestUtils.mz4(it.mz), [it.charge, it.adduct]] }
+            assertAll(
+                { assert workflow.success },
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_OBSERVED_PRESENCE },
+                // negative mode: negative charges and deprotonated adducts, z=2 for T3
+                { assert rows['285.1360'] == ['-1', '[M-H]-'] },
+                { assert rows['401.2021'] == ['-2', '[M-2H]2-'] },
+                { assert RequantTestUtils.within(RequantTestUtils.cell(gapfilled, '285.1360', 'synth.C.mzML'), RequantTestUtils.SYNTHETIC_T1_AREA, 0.01) },
+                { assert RequantTestUtils.within(RequantTestUtils.cell(gapfilled, '401.2021', 'synth.C.mzML'), RequantTestUtils.SYNTHETIC_T3_AREA, 0.01) },
+                // mask columns follow the consensus column headers, so compare by sample name
+                { assert RequantTestUtils.maskByMz(observed, mask).findAll { k, v -> v != ['observed'] * 3 } == [
+                    '285.1360': ['observed', 'observed', 'requantified'],
+                    '367.1784': ['observed', 'missing_no_candidate', 'missing_no_candidate'],
+                    '401.2021': ['observed', 'observed', 'requantified'],
+                ] },
+                { assert RequantTestUtils.provenanceTriples(path("$outputDir/${RequantTestUtils.PROV}").readLines()) == [
+                    ['synth.B', '367.1784', 'no_candidate'],
+                    ['synth.C', '285.1360', 'accepted'],
+                    ['synth.C', '367.1784', 'no_candidate'],
+                    ['synth.C', '401.2021', 'accepted'],
+                ] },
+                { assert RequantTestUtils.summaryCounts(path("$outputDir/${RequantTestUtils.SUMMARY}").readLines(), counts) == [
+                    'synth.A': [7, 7, 0, 0, 0, 0, 0, 0],
+                    'synth.B': [7, 6, 1, 0, 0, 0, 1, 1],
+                    'synth.C': [7, 4, 3, 2, 2, 0, 1, 1],
+                    'all'    : [7, 17, 4, 2, 2, 0, 2, 2],
+                ] },
+                { assert RequantTestUtils.crossCheck(observed, gapfilled, mask)[0] == [] }
+            )
+        }
+    }
+
+    test("synthetic --requantification - a sample without any feature") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                input            = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'positive', 'empty')
+                requantification = true
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed  = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            def gapfilled = path("$outputDir/${RequantTestUtils.GAPFILLED}").readLines()
+            def mask      = path("$outputDir/${RequantTestUtils.MASK}").readLines()
+            def counts    = ['consensus_rows', 'observed', 'targets_requested', 'candidates_recovered', 'accepted', 'rejected', 'no_candidate', 'missing_after']
+            def ffmi      = workflow.trace.tasks().collect { it.name }.findAll { it.contains('FEATUREFINDERMETABOIDENT') }
+            assertAll(
+                { assert workflow.success },
+                // synth.C keeps its (empty) column in the observed matrix, unchanged by requantification
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_EMPTY_OBSERVED_PRESENCE },
+                { assert RequantTestUtils.stableMd5(observed) == RequantTestUtils.SYNTHETIC_EMPTY_OBSERVED_MD5 },
+                { assert ffmi.findAll { it.contains('(synth.C)') }.size() == 1 },
+                { assert RequantTestUtils.maskByMz(observed, mask) == [
+                    '152.0706': ['observed', 'observed', 'requantified'],
+                    '241.1183': ['observed', 'observed', 'requantified'],
+                    '285.1360': ['observed', 'observed', 'requantified'],
+                    '329.1592': ['observed', 'observed', 'requantified'],
+                    '367.1784': ['observed', 'missing_no_candidate', 'missing_no_candidate'],
+                    '401.2021': ['observed', 'observed', 'requantified'],
+                    '413.2662': ['observed', 'observed', 'requantified'],
+                ] },
+                { assert RequantTestUtils.provenanceTriples(path("$outputDir/${RequantTestUtils.PROV}").readLines()) == [
+                    ['synth.B', '367.1784', 'no_candidate'],
+                    ['synth.C', '152.0706', 'accepted'],
+                    ['synth.C', '241.1183', 'accepted'],
+                    ['synth.C', '285.1360', 'accepted'],
+                    ['synth.C', '329.1592', 'accepted'],
+                    ['synth.C', '367.1784', 'no_candidate'],
+                    ['synth.C', '401.2021', 'accepted'],
+                    ['synth.C', '413.2662', 'accepted'],
+                ] },
+                { assert RequantTestUtils.summaryCounts(path("$outputDir/${RequantTestUtils.SUMMARY}").readLines(), counts) == [
+                    'synth.A': [7, 7, 0, 0, 0, 0, 0, 0],
+                    'synth.B': [7, 6, 1, 0, 0, 0, 1, 1],
+                    'synth.C': [7, 0, 7, 6, 6, 0, 1, 1],
+                    'all'    : [7, 13, 8, 6, 6, 0, 2, 2],
+                ] },
+                // the fills are the FFMI model areas of the injected Gaussians (within 1 %)
+                { assert RequantTestUtils.SYNTHETIC_EMPTY_HEIGHTS.findAll { mz, height ->
+                    !RequantTestUtils.within(RequantTestUtils.cell(gapfilled, mz, 'synth.C.mzML'), RequantTestUtils.syntheticArea(height), 0.01)
+                } == [:] },
+                { assert RequantTestUtils.cell(gapfilled, '367.1784', 'synth.C.mzML') == 0 },
+                { assert RequantTestUtils.stableMd5(gapfilled) == RequantTestUtils.SYNTHETIC_EMPTY_GAPFILLED_MD5 },
+                { assert RequantTestUtils.crossCheck(observed, gapfilled, mask)[0] == [] }
+            )
+        }
+    }
+
+    test("synthetic --requantification --parallel_linking - a sample without any feature") {
+
+        when {
+            params {
+                outdir           = "$outputDir"
+                input            = RequantTestUtils.writeSheet("$outputDir", "$projectDir", 'positive', 'empty')
+                requantification = true
+                parallel_linking = true
+                algorithm_ffm_charge_upper_bound_featurefindermetabo_openms = 2
+            }
+        }
+
+        then {
+            def observed  = path("$outputDir/${RequantTestUtils.OBSERVED}").readLines()
+            def gapfilled = path("$outputDir/${RequantTestUtils.GAPFILLED}").readLines()
+            def mask      = path("$outputDir/${RequantTestUtils.MASK}").readLines()
+            def counts    = ['consensus_rows', 'observed', 'targets_requested', 'candidates_recovered', 'accepted', 'rejected', 'no_candidate', 'missing_after']
+            def ffmi      = workflow.trace.tasks().collect { it.name }.findAll { it.contains('FEATUREFINDERMETABOIDENT') }
+            assertAll(
+                { assert workflow.success },
+                // synth.C keeps its (empty) column in the observed matrix, unchanged by requantification
+                { assert RequantTestUtils.presence(observed) == RequantTestUtils.SYNTHETIC_EMPTY_OBSERVED_PRESENCE },
+                { assert RequantTestUtils.stableMd5(observed) == RequantTestUtils.SYNTHETIC_EMPTY_OBSERVED_MD5 },
+                { assert ffmi.findAll { it.contains('(synth.C)') }.size() == 1 },
+                { assert RequantTestUtils.maskByMz(observed, mask) == [
+                    '152.0706': ['observed', 'observed', 'requantified'],
+                    '241.1183': ['observed', 'observed', 'requantified'],
+                    '285.1360': ['observed', 'observed', 'requantified'],
+                    '329.1592': ['observed', 'observed', 'requantified'],
+                    '367.1784': ['observed', 'missing_no_candidate', 'missing_no_candidate'],
+                    '401.2021': ['observed', 'observed', 'requantified'],
+                    '413.2662': ['observed', 'observed', 'requantified'],
+                ] },
+                { assert RequantTestUtils.provenanceTriples(path("$outputDir/${RequantTestUtils.PROV}").readLines()) == [
+                    ['synth.B', '367.1784', 'no_candidate'],
+                    ['synth.C', '152.0706', 'accepted'],
+                    ['synth.C', '241.1183', 'accepted'],
+                    ['synth.C', '285.1360', 'accepted'],
+                    ['synth.C', '329.1592', 'accepted'],
+                    ['synth.C', '367.1784', 'no_candidate'],
+                    ['synth.C', '401.2021', 'accepted'],
+                    ['synth.C', '413.2662', 'accepted'],
+                ] },
+                { assert RequantTestUtils.summaryCounts(path("$outputDir/${RequantTestUtils.SUMMARY}").readLines(), counts) == [
+                    'synth.A': [7, 7, 0, 0, 0, 0, 0, 0],
+                    'synth.B': [7, 6, 1, 0, 0, 0, 1, 1],
+                    'synth.C': [7, 0, 7, 6, 6, 0, 1, 1],
+                    'all'    : [7, 13, 8, 6, 6, 0, 2, 2],
+                ] },
+                // the fills are the FFMI model areas of the injected Gaussians (within 1 %)
+                { assert RequantTestUtils.SYNTHETIC_EMPTY_HEIGHTS.findAll { mz, height ->
+                    !RequantTestUtils.within(RequantTestUtils.cell(gapfilled, mz, 'synth.C.mzML'), RequantTestUtils.syntheticArea(height), 0.01)
+                } == [:] },
+                { assert RequantTestUtils.cell(gapfilled, '367.1784', 'synth.C.mzML') == 0 },
+                { assert RequantTestUtils.stableMd5(gapfilled) == RequantTestUtils.SYNTHETIC_EMPTY_GAPFILLED_MD5 },
+                { assert RequantTestUtils.crossCheck(observed, gapfilled, mask)[0] == [] }
+            )
+        }
+    }
+}

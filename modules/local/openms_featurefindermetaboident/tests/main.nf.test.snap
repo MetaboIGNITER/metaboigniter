@@ -1,0 +1,63 @@
+{
+    "versions": {
+        "content": [
+            [
+                "versions.yml:md5,adcbae7d9fea5f76bcc1ab15bb4b270b"
+            ]
+        ],
+        "timestamp": "2026-11-05T22:25:39.489199459",
+        "meta": {
+            "nf-test": "0.9.4",
+            "nextflow": "25.10.4"
+        }
+    },
+    "synth.B - stub": {
+        "content": [
+            {
+                "0": [
+                    [
+                        {
+                            "id": "synth.B"
+                        },
+                        "synth.B.featureXML:md5,d41d8cd98f00b204e9800998ecf8427e"
+                    ]
+                ],
+                "1": [
+                    [
+                        {
+                            "id": "synth.B"
+                        },
+                        "synth.B.ffmi.log:md5,d41d8cd98f00b204e9800998ecf8427e"
+                    ]
+                ],
+                "2": [
+                    "versions.yml:md5,adcbae7d9fea5f76bcc1ab15bb4b270b"
+                ],
+                "featurexml": [
+                    [
+                        {
+                            "id": "synth.B"
+                        },
+                        "synth.B.featureXML:md5,d41d8cd98f00b204e9800998ecf8427e"
+                    ]
+                ],
+                "log": [
+                    [
+                        {
+                            "id": "synth.B"
+                        },
+                        "synth.B.ffmi.log:md5,d41d8cd98f00b204e9800998ecf8427e"
+                    ]
+                ],
+                "versions": [
+                    "versions.yml:md5,adcbae7d9fea5f76bcc1ab15bb4b270b"
+                ]
+            }
+        ],
+        "timestamp": "2026-11-16T11:40:05.68518908",
+        "meta": {
+            "nf-test": "0.9.4",
+            "nextflow": "25.10.4"
+        }
+    }
+}

@@ -1,0 +1,14 @@
+RT window size calculated as 240 seconds.
+Loading targets and creating assay library...
+Loading input LC-MS data...
+Not FAIMS compensation voltages found in the data. Returning PeakMap as CV NaN.
+<RT window size calculated as 240 seconds.> occurred 4 times
+Extracting chromatograms...
+Detecting chromatographic peaks...
+Will analyse 2 peptides with a total of 2 transitions
+Found 2 feature candidates in total.
+2 features left after selection of best candidates.
+Model fitting: 2 successes, 0 failures
+Error: Unexpected internal error (Unable to fit linear transformation to the two data points.)
+Resampling spacing (0.05) is smaller than the smallest distance between data points (1). This approximates the detector dead time and may produce spurious peaks.
+<Resampling spacing (0.05) is smaller than the smallest distance between data points (1). This approximates the detector dead time and may produce spurious peaks.> occurred 2 times

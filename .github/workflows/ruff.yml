@@ -1,6 +1,6 @@
 name: Ruff
-# Lints and checks formatting of the Python scripts in bin/ with Ruff,
-# using the settings in pyproject.toml.
+# Lints and checks formatting of the Python scripts in bin/ and of the Python
+# tests in tests/ with Ruff, using the settings in ruff.toml.
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
         uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
         with:
           version: "0.17.0"
-          src: bin
+          src: bin tests
           args: check --output-format=github
 
       # Runs even if the lint step failed, so both results show on one run
@@ -28,5 +28,5 @@ jobs:
         uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
         with:
           version: "0.17.0"
-          src: bin
+          src: bin tests
           args: format --check --diff

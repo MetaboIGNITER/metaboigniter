@@ -1,0 +1,61 @@
+name: Python unit tests
+# Runs the unit and script-chain tests of the bin/ helper scripts (tests/*_test.py)
+# inside the same pyOpenMS container the pipeline modules use.
+on:
+  pull_request:
+    paths:
+      - "bin/**"
+      - "tests/**"
+      # tests/ffmi_wrapper_test.py renders and runs this module's script block
+      - "modules/local/openms_featurefindermetaboident/**"
+      - ".github/workflows/python-tests.yml"
+  push:
+    branches:
+      - dev
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # same image as modules/local/pyopenms_* (Python 3.11, pyOpenMS 3.6.0)
+      PYOPENMS_IMAGE: quay.io/biocontainers/pyopenms:3.6.0--py311hbf5b9ba_0
+      # fail if discovery silently finds fewer tests than this (raise when adding tests)
+      MIN_TESTS: "66"
+    steps:
+      - name: Check out pipeline code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Pull pyOpenMS container
+        run: docker pull "$PYOPENMS_IMAGE"
+
+      # The repository is mounted read-only, so a test that writes into bin/ or tests/
+      # (for example a __pycache__ directory) fails instead of passing silently.
+      - name: Discover and run tests
+        run: |
+          docker run --rm -i \
+            -e PYTHONDONTWRITEBYTECODE=1 -e MIN_TESTS \
+            -v "$GITHUB_WORKSPACE":/pipeline:ro -w /pipeline \
+            "$PYOPENMS_IMAGE" python -B - <<'EOF'
+          import os, sys, unittest
+          import pyopenms
+          print("python", sys.version.split()[0], "pyopenms", pyopenms.__version__)
+          suite = unittest.defaultTestLoader.discover("tests", pattern="*_test.py", top_level_dir="tests")
+          def walk(s):
+              for t in s:
+                  yield from (walk(t) if isinstance(t, unittest.TestSuite) else [t])
+          ids = [t.id() for t in walk(suite)]
+          print("\n".join(ids))
+          print(f"discovered {len(ids)} tests")
+          broken = [i for i in ids if i.startswith("unittest.loader._FailedTest")]
+          if broken or len(ids) < int(os.environ["MIN_TESTS"]):
+              sys.exit(f"discovery problem: {len(ids)} tests (minimum {os.environ['MIN_TESTS']}), import failures: {broken}")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() else 1)
+          EOF

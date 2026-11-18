@@ -1,0 +1,5 @@
+CompoundName	SumFormula	Mass	Charge	RetentionTime	RetentionTimeRange	IsoDistribution
+T1	 	284.128723533379	+1	140.0	60.0	0
+T2	 	366.171123533379	+1	90.0	60.0	0
+T3	 	800.3896470667579	+2	200.0	60.0	0
+T2_outside_rt	 	366.171123533379	+1	5000.0	60.0	0

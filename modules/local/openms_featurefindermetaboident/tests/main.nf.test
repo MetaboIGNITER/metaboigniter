@@ -1,0 +1,227 @@
+// FeatureFinderMetaboIdent module with its zero-candidate wrapper, on the synthetic
+// fixtures in tests/fixtures/requant_synthetic (see tests/fixtures/README.md).
+// Only the exact "zero candidates" outcome (exit 8 + the two "0 ..." log lines + the empty
+// range error, no "Could not find any points" line, valid library) may become an empty map.
+// "Every target absent" is therefore accepted only when the extraction was valid: a library
+// outside the RT range of the run, a malformed library or any other FFMI error still fails.
+nextflow_process {
+
+    name "Test Process OPENMS_FEATUREFINDERMETABOIDENT"
+    script "../main.nf"
+    process "OPENMS_FEATUREFINDERMETABOIDENT"
+    tag "modules"
+    tag "modules_local"
+    tag "openms_featurefindermetaboident"
+
+    test("every target absent, valid extraction - empty feature map") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/absent_synth.B.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            def featurexml = file(process.out.featurexml[0][1])
+            def log = file(process.out.log[0][1]).text
+            assertAll(
+                { assert process.success },
+                { assert process.out.featurexml[0][0] == [ id: 'synth.B' ] },
+                { assert featurexml.text.startsWith('<?xml') },
+                { assert featurexml.text.contains('<featureList count="0">') },
+                { assert log.contains('Found 0 feature candidates in total.') },
+                { assert snapshot(process.out.versions).match('versions') }
+            )
+        }
+    }
+
+    test("targets with signal below the FFM threshold - two features") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.C' ],
+                    file("\${fixtures}/positive/synth.C.fill/synth.C.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/fill_synth.C.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            def text = file(process.out.featurexml[0][1]).text
+            assertAll(
+                { assert process.success },
+                { assert text.contains('<featureList count="2">') },
+                { assert text.contains('name="label" value="T1"') },
+                { assert text.contains('name="label" value="T3"') },
+                // T2 has no signal: it appears among the unassigned identifications only.
+                // Top-level features are tab-indented twice; subordinates are deeper.
+                { assert (text =~ /(?m)^\t\t<feature id=/).count == 2 },
+                { assert (text =~ /(?m)^\t\t\t<UserParam type="string" name="label" value="(T1|T3)"\/>/).count == 2 },
+                { assert (text =~ /name="model_status" value="0 \(valid\)"/).count == 2 },
+                { assert file(process.out.log[0][1]).text.contains('Found 2 feature candidates in total.') }
+            )
+        }
+    }
+
+    test("library with an empty RT range - rejected before FFMI runs") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/invalid_range.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assertAll(
+                { assert process.failed },
+                { assert process.stdout.any { it.contains('terminated with an error exit status (1)') } }
+            )
+        }
+    }
+
+    test("library FFMI cannot read - FFMI exit status propagates") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/malformed.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assertAll(
+                { assert process.failed },
+                { assert process.stdout.any { it.contains('terminated with an error exit status (3)') } }
+            )
+        }
+    }
+
+    test("library outside the RT range of the run - fails") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/outside_rt_synth.B.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            // FFMI also exits 8 with "Found 0 feature candidates" here, but the extraction
+            // found no chromatogram points: the wrapper must not turn this into "absent".
+            assertAll(
+                { assert process.failed },
+                { assert process.stdout.any { it.contains('terminated with an error exit status (8)') } }
+            )
+        }
+    }
+
+    test("library with candidates plus a target outside the RT range of the run - success") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.C' ],
+                    file("\${fixtures}/positive/synth.C.fill/synth.C.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/fill_outside_rt_synth.C.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            // FFMI exits 0: the out-of-run target only adds a "Could not find any points" line
+            def text = file(process.out.featurexml[0][1]).text
+            def log = file(process.out.log[0][1]).text
+            assertAll(
+                { assert process.success },
+                { assert text.contains('<featureList count="2">') },
+                { assert (text =~ /(?m)^\t\t\t<UserParam type="string" name="label" value="(T1|T3)"\/>/).count == 2 },
+                { assert log.contains('Could not find any points for chromatogram T2_outside_rt') },
+                { assert log.contains('Found 2 feature candidates in total.') },
+                { assert !log.contains('writing an empty feature map') }
+            )
+        }
+    }
+
+    test("every target absent plus a target outside the RT range of the run - fails") {
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/absent_outside_rt_synth.B.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            // FFMI exits 8 with "Found 0 feature candidates", but one extraction found no
+            // chromatogram points: the wrapper must not turn this into "every target absent".
+            assertAll(
+                { assert process.failed },
+                { assert process.stdout.any { it.contains('terminated with an error exit status (8)') } }
+            )
+        }
+    }
+
+    test("synth.B - stub") {
+
+        options "-stub"
+
+        when {
+            process {
+                """
+                def fixtures = "${projectDir}/tests/fixtures/requant_synthetic"
+                input[0] = [
+                    [ id: 'synth.B' ],
+                    file("\${fixtures}/positive/synth.B.mzML", checkIfExists: true),
+                    file("\${fixtures}/libraries/absent_synth.B.tsv", checkIfExists: true)
+                ]
+                """
+            }
+        }
+
+        then {
+            assertAll(
+                { assert process.success },
+                { assert snapshot(process.out).match() }
+            )
+        }
+    }
+}
